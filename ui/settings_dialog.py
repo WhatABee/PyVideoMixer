@@ -58,7 +58,13 @@ class SettingsDialog(QDialog):
             return {}
 
     def _browse(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Выберите внешний плеер", "", "Исполняемые файлы (*.exe);;Все файлы (*)")
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Выберите внешний плеер",
+            "",
+            "Исполняемые файлы (*.exe);;Все файлы (*)",
+            options=QFileDialog.Option.DontUseNativeDialog,
+        )
         if path:
             self.player.setText(path)
 

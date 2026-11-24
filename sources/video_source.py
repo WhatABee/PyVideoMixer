@@ -32,6 +32,7 @@ class VideoSource(BaseSource):
         self._preview_interval = 1.0 / 12.0
         self._last_preview_time = 0.0
         self._full_frame: Optional[QImage] = None
+        self._first_1080p_frame: Optional[QImage] = None
         self._last_video_frame: Optional[QVideoFrame] = None
         self._source_ready = False
         self._initializing_preview = True
@@ -78,6 +79,7 @@ class VideoSource(BaseSource):
         super().stop()
         self._player.stop()
         self._full_frame = None
+        self._first_1080p_frame = None
         self._last_video_frame = None
         self._frame = None
 
@@ -193,11 +195,24 @@ class VideoSource(BaseSource):
 
     def set_high_res_transition(self, enabled: bool) -> None:
         self._high_res_transition = bool(enabled)
-        if enabled and self._last_video_frame is not None and self._last_video_frame.isValid():
-            image = self._last_video_frame.toImage()
-            if not image.isNull():
-                self._full_frame = image
-                self._publish(image)
+        if enabled:
+            image = None
+            if self._last_video_frame is not None and self._last_video_frame.isValid():
+                image = self._last_video_frame.toImage()
+            if image is None or image.isNull():
+                image = self._first_1080p_frame
+            if image is not None and not image.isNull():
+                if image.width() > 1920 or image.height() > 1080:
+                    scaled = image.scaled(
+                        1920,
+                        1080,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.FastTransformation,
+                    )
+                else:
+                    scaled = image
+                self._full_frame = scaled
+                self._publish(scaled)
 
     def set_volume(self, volume: float) -> None:
         self._volume = max(0.0, min(1.0, float(volume)))
@@ -229,25 +244,43 @@ class VideoSource(BaseSource):
             return
         if frame.isValid():
             self._last_video_frame = frame
+        if frame.isValid() and self._initializing_preview:
+            init_img = frame.toImage()
+            if not init_img.isNull():
+                first_frame = init_img
+                if init_img.width() > 1920 or init_img.height() > 1080:
+                    first_frame = init_img.scaled(
+                        1920,
+                        1080,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.FastTransformation,
+                    )
+                self._first_1080p_frame = first_frame.copy()
+                self._full_frame = first_frame
+                self._player.pause()
+                self._player.setPosition(0)
+                self._initializing_preview = False
+                self._publish(first_frame)
         now = time.monotonic()
-        if now - self._last_preview_time < self._preview_interval:
+        interval = (1.0 / 30.0) if self._high_res_transition else self._preview_interval
+        if now - self._last_preview_time < interval:
             return
         self._last_preview_time = now
         image = frame.toImage()
         if image.isNull():
             return
-        if self._initializing_preview:
-            self._player.pause()
-            self._player.setPosition(0)
-            self._initializing_preview = False
         if self._high_res_transition:
-            scaled = image.scaled(1280, 720, Qt.AspectRatioMode.KeepAspectRatio,
-                                  Qt.TransformationMode.FastTransformation)
+            if image.width() > 1920 or image.height() > 1080:
+                scaled = image.scaled(1920, 1080, Qt.AspectRatioMode.KeepAspectRatio,
+                                      Qt.TransformationMode.FastTransformation)
+                del image
+            else:
+                scaled = image
         else:
             scaled = image.scaled(640, 360, Qt.AspectRatioMode.KeepAspectRatio,
                                   Qt.TransformationMode.FastTransformation)
+            del image
         self._full_frame = scaled
-        del image
         self._publish(scaled)
 
     @Slot(int)

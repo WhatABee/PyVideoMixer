@@ -665,7 +665,12 @@ class MainWindow(QMainWindow):
             self._register_source(source)
 
     def _add_folder(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Добавить папку с фото")
+        path = QFileDialog.getExistingDirectory(
+            self,
+            "Добавить папку с фото",
+            "",
+            options=QFileDialog.Option.DontUseNativeDialog,
+        )
         if not path:
             return
         try:
@@ -1093,13 +1098,14 @@ class MainWindow(QMainWindow):
     # Переходы и Master Controls
     # ==================================================================
     def _cut(self) -> None:
+        self._is_cut_transition = True
         if not self._output_active:
             return
         if self.preview_source is None:
             return
         previous = self.program_source
         target = self.preview_source
-        self._fade_pause_outgoing = True
+        self._fade_pause_outgoing = False
         self.program_source = target
         if isinstance(target, VideoSource):
             target.set_high_res_transition(True)
@@ -1110,6 +1116,7 @@ class MainWindow(QMainWindow):
         self._sync_slot_play_buttons()
 
     def _fade(self, pause_outgoing: bool = False) -> None:
+        self._is_cut_transition = False
         self._fade_pause_outgoing = bool(pause_outgoing)
         if not self._output_active:
             return
@@ -1118,20 +1125,15 @@ class MainWindow(QMainWindow):
         previous = self.program_source
         target = self.preview_source
         if isinstance(previous, VideoSource):
+            previous.set_native_output(None)
             previous.set_high_res_transition(True)
         if isinstance(target, VideoSource):
+            target.set_native_output(None)
             target.set_high_res_transition(True)
             target.set_muted(target._muted)
-            if not self.output.freeze_active:
-                target._user_paused = False
-                target.play()
         live_frame = self._grab_live_program_frame()
         if live_frame is not None and not live_frame.isNull():
             self.output._last_content = live_frame
-        if isinstance(target, VideoSource):
-            first_frame = target.get_latest()
-            if first_frame is not None and not first_frame.isNull():
-                self.output._last_content = first_frame
         self.program_source = target
         self.output.fade(int(self.fade_duration.value() * 1000))
         self._refresh_captions()
@@ -1143,17 +1145,13 @@ class MainWindow(QMainWindow):
             outgoing.set_high_res_transition(False)
             outgoing.set_native_output(None)
             outgoing.reset_to_start()
-            if self._fade_pause_outgoing:
-                outgoing.pause(by_user=True)
-            else:
-                outgoing.set_muted(True)
         if not isinstance(incoming, VideoSource):
             self.video_output_window._last_image = None
         if isinstance(incoming, VideoSource) and incoming is self.program_source:
             incoming.set_high_res_transition(False)
             incoming.set_muted(incoming._muted)
-            if self.output.freeze_active:
-                incoming.pause(by_user=False)
+            if self.output.freeze_active or self._fade_pause_outgoing:
+                incoming.pause(by_user=self._fade_pause_outgoing)
             else:
                 incoming._user_paused = False
                 incoming.play()
@@ -1294,11 +1292,17 @@ class MainWindow(QMainWindow):
                 elif not self.video_output_window.isVisible():
                     self.video_output_window.show()
                 if isinstance(source, VideoSource):
-                    source.set_native_output(self.video_output_window)
+                    if (not self.output.fade_active
+                            and not self.output.freeze_active
+                            and not black_state):
+                        source.set_native_output(self.video_output_window)
+                    else:
+                        source.set_native_output(None)
                     source.set_high_res_transition(False)
                     if self.output.freeze_active:
                         source.pause()
-                    elif (not source.is_playing
+                    elif (not self.output.fade_active
+                          and not source.is_playing
                           and not getattr(source, "_user_paused", False)):
                         source.play()
                 else:
@@ -1510,16 +1514,27 @@ class MainWindow(QMainWindow):
         combo = self.screen_combo
         current = combo.currentData()
         primary = QGuiApplication.primaryScreen()
+        control_screen = self.screen() or primary
 
         combo.blockSignals(True)
         combo.clear()
         screens = QGuiApplication.screens()
         for index, screen in enumerate(screens):
+            if screen is control_screen:
+                continue
             geo = screen.geometry()
             label = f"{index + 1}: {screen.name()} · {geo.width()}×{geo.height()}"
             if screen is primary:
                 label += " · основной"
             combo.addItem(label, screen)
+
+        if combo.count() == 0:
+            combo.addItem("Нет второго монитора (пульт защищён)", None)
+            combo.setEnabled(False)
+            self.fs_btn.setEnabled(False)
+        else:
+            combo.setEnabled(True)
+            self.fs_btn.setEnabled(True)
 
         if current is not None:
             for index in range(combo.count()):
@@ -1539,7 +1554,7 @@ class MainWindow(QMainWindow):
 
     def _go_fullscreen(self) -> None:
         screen = self.screen_combo.currentData()
-        if screen is None:
+        if screen is None or screen is (self.screen() or QGuiApplication.primaryScreen()):
             QMessageBox.information(
                 self,
                 "Нет монитора",
@@ -1615,4 +1630,5 @@ class MainWindow(QMainWindow):
         self.sources.clear()
         self.output_window.close()
         self.video_output_window.close()
+        self.black_overlay.close()
         super().closeEvent(event)

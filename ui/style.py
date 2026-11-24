@@ -153,6 +153,47 @@ QStatusBar {
     background-color: #101317;
     color: #9aa4b2;
 }
+QDialog, QFileDialog {
+    background-color: #16191d;
+    color: #e6e8eb;
+}
+QTreeView, QTableView, QListView {
+    background-color: #101317;
+    alternate-background-color: #14181f;
+    color: #e6e8eb;
+    border: 1px solid #2a3038;
+    outline: 0;
+}
+QTreeView::item:selected, QTableView::item:selected, QListView::item:selected {
+    background-color: #1f3a63;
+    color: #ffffff;
+}
+QTreeView::item:hover, QTableView::item:hover, QListView::item:hover {
+    background-color: #1d2229;
+}
+QHeaderView::section {
+    background-color: #1e232a;
+    color: #cbd5e1;
+    border: 1px solid #2a3038;
+    padding: 4px 6px;
+}
+QLineEdit {
+    background-color: #101317;
+    color: #e6e8eb;
+    border: 1px solid #2a3038;
+    border-radius: 6px;
+    padding: 4px 6px;
+}
+QToolButton {
+    background-color: #2a3038;
+    color: #e6e8eb;
+    border: 1px solid #3a424d;
+    border-radius: 4px;
+    padding: 4px;
+}
+QToolButton:hover {
+    background-color: #343c46;
+}
 """
 
 
