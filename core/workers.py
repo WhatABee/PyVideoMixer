@@ -216,6 +216,7 @@ class PdfRenderWorker(QObject):
     """Открывает документ и рендерит страницы PyMuPDF в фоновом потоке."""
 
     frame_ready = Signal(QImage)
+    preview_frame_ready = Signal(QImage)
     page_rendered = Signal(int, int)
     document_opened = Signal(int)
     failed = Signal(str)
@@ -276,6 +277,35 @@ class PdfRenderWorker(QObject):
             self.page_rendered.emit(index, count)
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(f"Не удалось отрисовать страницу PDF: {exc}")
+
+    @Slot(int)
+    def render_preview_page(self, index: int) -> None:
+        if self._doc is None:
+            return
+        try:
+            fitz = _import_fitz()
+            count = int(self._doc.page_count)
+            index = max(0, min(int(index), count - 1))
+            page = self._doc.load_page(index)
+            pix = page.get_pixmap(matrix=fitz.Matrix(1.0, 1.0), alpha=False)
+            image = QImage(
+                pix.samples,
+                pix.width,
+                pix.height,
+                pix.stride,
+                QImage.Format.Format_RGB888,
+            ).copy()
+            del pix
+            if image.width() > 960 or image.height() > 540:
+                image = image.scaled(
+                    960,
+                    540,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.FastTransformation,
+                )
+            self.preview_frame_ready.emit(image)
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(f"Не удалось отрисовать превью страницы PDF: {exc}")
 
     @Slot()
     def shutdown(self) -> None:

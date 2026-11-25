@@ -290,8 +290,10 @@ class OutputManager(QObject):
             return
 
         if self._preview is not None and self._preview is self._program:
-            preview_img = self._get_source_frame(self._preview)
-            program_img = preview_img
+            program_img = self._get_source_frame(self._preview)
+            get_next_preview = getattr(self._preview, "get_next_preview", None)
+            next_img = get_next_preview() if callable(get_next_preview) else None
+            preview_img = next_img if next_img is not None else program_img
         else:
             preview_img = self._get_source_frame(self._preview)
             program_img = self._get_source_frame(self._program)

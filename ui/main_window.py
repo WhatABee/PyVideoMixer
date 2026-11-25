@@ -6,7 +6,7 @@ import ctypes
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from PySide6.QtCore import QSignalBlocker, Qt, QTimer
+from PySide6.QtCore import QEvent, QSignalBlocker, Qt, QTimer
 from PySide6.QtGui import QFont, QGuiApplication, QImage, QKeySequence, QScreen, QShortcut
 from PySide6.QtMultimedia import QVideoFrame
 from PySide6.QtWidgets import (
@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -166,8 +167,20 @@ class MainWindow(QMainWindow):
         self.video_output_window = VideoOutputWindow()
         self.black_overlay = BlackOverlayWindow()
         self._output_active = False
-        self._fade_pause_outgoing = False
+        self._pause_incoming_after_transition = False
         self.settings = SettingsDialog.load_settings()
+        self._reload_slide_shortcuts()
+        from ui.style import build_stylesheet
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(build_stylesheet(
+                self.settings.get("theme", "dark"),
+                self.settings.get("accent_color", "#2563eb"),
+                self.settings.get("fade_color", "#0f766e"),
+                self.settings.get("fade_pause_color", "#0d9488"),
+                self.settings.get("cut_color", "#2563eb"),
+                self.settings.get("cut_pause_color", "#1d4ed8"),
+            ))
         self.output.set_video_output_mode(self.settings.get("video_output_mode", "qvideowidget"))
         self.external_player = ExternalPlayer(self.settings.get("external_player", ""))
 
@@ -197,6 +210,9 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._connect_signals()
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
         self._install_shortcuts()
         self._keep_windows_awake()
         self._refresh_screens()
@@ -235,8 +251,8 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(central)
         self.statusBar().showMessage(
-            "Готово · Space — Cut · Enter — Fade · F — Freeze · B — Black · "
-            "←/→ — слайды активной презентации"
+            "Готово · Пробел — Резко · Enter — Плавно · F — Заморозить · "
+            "B — Чёрный экран · H — Домашний фон · PageUp/PageDown/←/→ — слайды"
         )
         self.fps_label = QLabel("FPS: 0.0 | Avg: 0.0")
         self.statusBar().addPermanentWidget(self.fps_label)
@@ -300,8 +316,8 @@ class MainWindow(QMainWindow):
         preview_box = QGroupBox()
         preview_layout = QVBoxLayout(preview_box)
         preview_header = QHBoxLayout()
-        preview_title = QLabel("PREVIEW")
-        preview_title.setStyleSheet("font-weight: 700;")
+        preview_title = QLabel("ПРЕДПРОСМОТР")
+        preview_title.setObjectName("sourceTitleLabel")
         self._preview_play_btn = QPushButton("⏸ Пауза")
         self._preview_play_btn.setFont(QFont("Segoe UI Symbol"))
         self._preview_play_btn.setFixedHeight(23)
@@ -312,16 +328,16 @@ class MainWindow(QMainWindow):
         preview_header.addWidget(self._preview_play_btn)
         preview_layout.addLayout(preview_header)
         self.preview_widget = ScreenWidget()
-        self.preview_caption = QLabel("PREVIEW · —")
-        self.preview_caption.setStyleSheet("color:#9aa4b2;")
+        self.preview_caption = QLabel("ПРЕДПРОСМОТР · —")
+        self.preview_caption.setObjectName("mutedLabel")
         preview_layout.addWidget(self.preview_widget, 1)
         preview_layout.addWidget(self.preview_caption)
 
         program_box = QGroupBox()
         program_layout = QVBoxLayout(program_box)
         program_header = QHBoxLayout()
-        program_title = QLabel("PROGRAM")
-        program_title.setStyleSheet("font-weight: 700;")
+        program_title = QLabel("ЭФИР")
+        program_title.setObjectName("sourceTitleLabel")
         self._program_play_btn = QPushButton("⏸ Пауза")
         self._program_play_btn.setFont(QFont("Segoe UI Symbol"))
         self._program_play_btn.setFixedHeight(23)
@@ -332,8 +348,8 @@ class MainWindow(QMainWindow):
         program_header.addWidget(self._program_play_btn)
         program_layout.addLayout(program_header)
         self.program_widget = ScreenWidget()
-        self.program_caption = QLabel("PROGRAM · —")
-        self.program_caption.setStyleSheet("color:#9aa4b2;")
+        self.program_caption = QLabel("ЭФИР · —")
+        self.program_caption.setObjectName("mutedLabel")
         program_layout.addWidget(self.program_widget, 1)
         program_layout.addWidget(self.program_caption)
 
@@ -343,35 +359,44 @@ class MainWindow(QMainWindow):
         self.media_box.installEventFilter(self)
 
         controls = QHBoxLayout()
-        controls.addWidget(QLabel("Fade:"))
+        left_controls = QHBoxLayout()
+        left_controls.addWidget(QLabel("Плавность:"))
         self.fade_duration = QDoubleSpinBox()
         self.fade_duration.setRange(0.1, 5.0)
         self.fade_duration.setSingleStep(0.1)
         self.fade_duration.setDecimals(1)
         self.fade_duration.setValue(0.8)
         self.fade_duration.setSuffix(" с")
-        controls.addWidget(self.fade_duration)
-        controls.addSpacing(8)
-        controls.addStretch(1)
+        left_controls.addWidget(self.fade_duration)
 
-        self.cut_btn = QPushButton("CUT")
-        self.cut_btn.setObjectName("cutButton")
-        self.cut_btn.setMinimumSize(160, 56)
-        self.cut_btn.setToolTip("Мгновенно отправить Preview в эфир (Space)")
-
-        self.fade_btn = QPushButton("FADE\n(без паузы)")
+        self.fade_btn = QPushButton("ПЛАВНО")
         self.fade_btn.setObjectName("fadeButton")
-        self.fade_btn.setMinimumSize(160, 56)
+        self.fade_btn.setMinimumSize(115, 52)
         self.fade_btn.setToolTip("Плавный переход без остановки уходящего видео")
 
-        self.fade_pause_btn = QPushButton("FADE\n(пауза)")
+        self.fade_pause_btn = QPushButton("ПЛАВНО\n(пауза)")
         self.fade_pause_btn.setObjectName("fadePauseButton")
-        self.fade_pause_btn.setMinimumSize(160, 56)
+        self.fade_pause_btn.setMinimumSize(115, 52)
         self.fade_pause_btn.setToolTip("Плавный переход с паузой уходящего видео")
+        left_controls.addWidget(self.fade_btn)
+        left_controls.addWidget(self.fade_pause_btn)
 
-        controls.addWidget(self.cut_btn)
-        controls.addWidget(self.fade_btn)
-        controls.addWidget(self.fade_pause_btn)
+        self.cut_btn = QPushButton("РЕЗКО")
+        self.cut_btn.setObjectName("cutButton")
+        self.cut_btn.setMinimumSize(130, 52)
+        self.cut_btn.setToolTip("Мгновенно отправить Preview в эфир (Space)")
+
+        self.cut_pause_btn = QPushButton("РЕЗКО\n(пауза)")
+        self.cut_pause_btn.setObjectName("cutPauseButton")
+        self.cut_pause_btn.setMinimumSize(130, 52)
+        self.cut_pause_btn.setToolTip("Резко отправить источник в эфир и поставить его на паузу")
+
+        right_controls = QHBoxLayout()
+        right_controls.addStretch(1)
+        right_controls.addWidget(self.cut_btn)
+        right_controls.addWidget(self.cut_pause_btn)
+        controls.addLayout(left_controls, 1)
+        controls.addLayout(right_controls, 1)
         layout.addLayout(controls)
         layout.addWidget(self._build_slide_panel())
         return panel
@@ -384,7 +409,7 @@ class MainWindow(QMainWindow):
         self.slide_target_label = QLabel(
             "Презентация или альбом не выбраны · добавьте PDF, PPTX или папку фото"
         )
-        self.slide_target_label.setStyleSheet("color:#9aa4b2;")
+        self.slide_target_label.setObjectName("mutedLabel")
         self.slide_target_label.setWordWrap(True)
         layout.addWidget(self.slide_target_label)
 
@@ -443,7 +468,7 @@ class MainWindow(QMainWindow):
         self.slide_number.setToolTip("Введите номер слайда и нажмите Enter")
         counter_row.addWidget(self.slide_number)
         self.slide_total_label = QLabel("/ —")
-        self.slide_total_label.setStyleSheet("color:#9aa4b2;")
+        self.slide_total_label.setObjectName("mutedLabel")
         counter_row.addWidget(self.slide_total_label)
         counter_row.addStretch(1)
         layout.addLayout(counter_row)
@@ -456,33 +481,33 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        master_box = QGroupBox("MASTER CONTROLS")
+        master_box = QGroupBox("УПРАВЛЕНИЕ ЭФИРОМ")
         master_layout = QVBoxLayout(master_box)
 
         self.state_label = QLabel("ЭФИР")
         self.state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         master_layout.addWidget(self.state_label)
 
-        self.freeze_btn = QPushButton("FREEZE")
+        self.freeze_btn = QPushButton("ЗАМОРОЗИТЬ (F)")
         self.freeze_btn.setObjectName("freezeButton")
         self.freeze_btn.setCheckable(True)
         self.freeze_btn.setMinimumHeight(62)
         self.freeze_btn.setToolTip("Заморозить последний кадр в Program Output (F)")
         master_layout.addWidget(self.freeze_btn)
 
-        self.black_btn = QPushButton("BLACK / FTB")
+        self.black_btn = QPushButton("ЧЁРНЫЙ ЭКРАН (B)")
         self.black_btn.setObjectName("blackButton")
         self.black_btn.setCheckable(True)
         self.black_btn.setMinimumHeight(62)
         self.black_btn.setToolTip("Fade to Black — погасить вывод (B)")
         master_layout.addWidget(self.black_btn)
 
-        self.home_btn = QPushButton("HOME (H)")
+        self.home_btn = QPushButton("ДОМАШНИЙ ФОН (H)")
         self.home_btn.setMinimumHeight(62)
         self.home_btn.setToolTip("Плавно вывести домашний фон (H)")
         master_layout.addWidget(self.home_btn)
 
-        self.smooth_ftb = QCheckBox("Плавный FTB")
+        self.smooth_ftb = QCheckBox("Плавное затемнение")
         self.ftb_duration = QDoubleSpinBox()
         self.ftb_duration.setRange(0.1, 5.0)
         self.ftb_duration.setSingleStep(0.1)
@@ -509,8 +534,8 @@ class MainWindow(QMainWindow):
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
         )
         self.mode_combo = QComboBox()
-        self.mode_combo.addItem("Fit · поля", "fit")
-        self.mode_combo.addItem("Fill · обрезка", "fill")
+        self.mode_combo.addItem("По размеру · поля", "fit")
+        self.mode_combo.addItem("Заполнить · обрезка", "fill")
         form.addRow("Монитор:", self.screen_combo)
         form.addRow("Кадр:", self.mode_combo)
         output_layout.addLayout(form)
@@ -522,19 +547,20 @@ class MainWindow(QMainWindow):
 
         self.output_state_label = QLabel("ВЫВОД: скрыт")
         self.output_state_label.setWordWrap(True)
-        self.output_state_label.setStyleSheet("color:#8b95a3;")
+        self.output_state_label.setObjectName("mutedLabel")
         output_layout.addWidget(self.output_state_label)
         layout.addWidget(output_box)
 
         hint = QLabel(
             "Горячие клавиши:\n"
-            "Space — Cut\n"
-            "Enter — Fade\n"
-            "F — Freeze\n"
-            "B — Black\n"
-            "← / → — слайды активной презентации"
+            "Пробел — Резко\n"
+            "Enter — Плавно\n"
+            "F — Заморозить\n"
+            "B — Чёрный экран\n"
+            "H — Домашний фон\n"
+            "PageUp / PageDown / ← / → — слайды"
         )
-        hint.setStyleSheet("color:#8b95a3;")
+        hint.setObjectName("mutedLabel")
         hint.setWordWrap(True)
         layout.addWidget(hint)
         layout.addStretch(1)
@@ -562,9 +588,10 @@ class MainWindow(QMainWindow):
         self.remove_btn.clicked.connect(self._remove_selected)
         self.home_btn.clicked.connect(self._go_home)
 
-        self.cut_btn.clicked.connect(self._cut)
-        self.fade_btn.clicked.connect(lambda: self._fade(pause_outgoing=False))
-        self.fade_pause_btn.clicked.connect(lambda: self._fade(pause_outgoing=True))
+        self.cut_btn.clicked.connect(lambda: self._cut(False))
+        self.cut_pause_btn.clicked.connect(lambda: self._cut(True))
+        self.fade_btn.clicked.connect(lambda: self._fade(False))
+        self.fade_pause_btn.clicked.connect(lambda: self._fade(True))
         self._preview_play_btn.clicked.connect(
             lambda: self._toggle_slot_rendering("preview")
         )
@@ -601,6 +628,27 @@ class MainWindow(QMainWindow):
         if app is not None:
             app.screenAdded.connect(self._refresh_screens)
             app.screenRemoved.connect(self._refresh_screens)
+
+    def _reload_slide_shortcuts(self) -> None:
+        self._next_slide_seq = QKeySequence(self.settings.get("next_slide_key", "PgDown"))
+        self._prev_slide_seq = QKeySequence(self.settings.get("prev_slide_key", "PgUp"))
+
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() == QEvent.Type.KeyPress and not event.isAutoRepeat():
+            focus = QApplication.focusWidget()
+            if focus is not None and (
+                focus.metaObject().className() == "QKeySequenceEdit"
+                or isinstance(focus, (QAbstractSpinBox, QLineEdit))
+            ):
+                return super().eventFilter(watched, event)
+            pressed = QKeySequence(event.keyCombination())
+            if not self._next_slide_seq.isEmpty() and pressed == self._next_slide_seq:
+                self._slide_next()
+                return True
+            if not self._prev_slide_seq.isEmpty() and pressed == self._prev_slide_seq:
+                self._slide_prev()
+                return True
+        return super().eventFilter(watched, event)
 
     def _install_shortcuts(self) -> None:
         bindings = (
@@ -889,7 +937,7 @@ class MainWindow(QMainWindow):
         self.source_layout.addWidget(home_btn)
 
         kind = QLabel(f"Тип: {source.kind}")
-        kind.setStyleSheet("color:#8b95a3;")
+        kind.setObjectName("mutedLabel")
         self.source_layout.addWidget(kind)
 
         if isinstance(source, PdfSource):
@@ -1057,6 +1105,7 @@ class MainWindow(QMainWindow):
             if self._slide_timer.isActive() and source.is_last_page:
                 # Автопрокрутка дошла до последнего слайда — дальше не идем.
                 self._pause_slideshow()
+        self._refresh_captions()
 
     def _set_home_source(self, source: BaseSource, checked: bool) -> None:
         self.home_source = source if checked else None
@@ -1079,6 +1128,7 @@ class MainWindow(QMainWindow):
         tooltip = "" if enabled else "Сначала включите вывод на экран («На весь экран»)"
         for button in (
             self.cut_btn,
+            self.cut_pause_btn,
             self.fade_btn,
             self.fade_pause_btn,
             self.freeze_btn,
@@ -1097,15 +1147,15 @@ class MainWindow(QMainWindow):
     # ==================================================================
     # Переходы и Master Controls
     # ==================================================================
-    def _cut(self) -> None:
+    def _cut(self, pause_incoming: bool = False) -> None:
         self._is_cut_transition = True
+        self._pause_incoming_after_transition = bool(pause_incoming)
         if not self._output_active:
             return
         if self.preview_source is None:
             return
         previous = self.program_source
         target = self.preview_source
-        self._fade_pause_outgoing = False
         self.program_source = target
         if isinstance(target, VideoSource):
             target.set_high_res_transition(True)
@@ -1115,9 +1165,9 @@ class MainWindow(QMainWindow):
         self._refresh_slide_target()
         self._sync_slot_play_buttons()
 
-    def _fade(self, pause_outgoing: bool = False) -> None:
+    def _fade(self, pause_incoming: bool = False) -> None:
         self._is_cut_transition = False
-        self._fade_pause_outgoing = bool(pause_outgoing)
+        self._pause_incoming_after_transition = bool(pause_incoming)
         if not self._output_active:
             return
         if self.preview_source is None or self.preview_source is self.program_source:
@@ -1145,13 +1195,18 @@ class MainWindow(QMainWindow):
             outgoing.set_high_res_transition(False)
             outgoing.set_native_output(None)
             outgoing.reset_to_start()
-        if not isinstance(incoming, VideoSource):
+        if not isinstance(incoming, VideoSource) and not self.output.freeze_active:
             self.video_output_window._last_image = None
         if isinstance(incoming, VideoSource) and incoming is self.program_source:
             incoming.set_high_res_transition(False)
             incoming.set_muted(incoming._muted)
-            if self.output.freeze_active or self._fade_pause_outgoing:
-                incoming.pause(by_user=self._fade_pause_outgoing)
+            if self.output.freeze_active or self._pause_incoming_after_transition:
+                incoming.pause(by_user=self._pause_incoming_after_transition)
+                self._sync_native_output()
+                if not self.output.freeze_active:
+                    first_frame = incoming.grab_full_frame()
+                    if first_frame is not None and not first_frame.isNull():
+                        self.video_output_window.set_image(first_frame)
             else:
                 incoming._user_paused = False
                 incoming.play()
@@ -1307,7 +1362,8 @@ class MainWindow(QMainWindow):
                         source.play()
                 else:
                     frame = source.get_latest() if source is not None else None
-                    self.video_output_window.set_image(frame)
+                    if not self.output.freeze_active and not self.output.fade_active:
+                        self.video_output_window.set_image(frame)
                 if black_state:
                     self.black_overlay.set_alpha(self.output._black_alpha, screen)
                     self.black_overlay.raise_()
@@ -1324,6 +1380,18 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.settings = dialog.settings()
+            self._reload_slide_shortcuts()
+            from ui.style import build_stylesheet
+            app = QApplication.instance()
+            if app is not None:
+                app.setStyleSheet(build_stylesheet(
+                self.settings.get("theme", "dark"),
+                self.settings.get("accent_color", "#2563eb"),
+                self.settings.get("fade_color", "#0f766e"),
+                self.settings.get("fade_pause_color", "#0d9488"),
+                self.settings.get("cut_color", "#2563eb"),
+                self.settings.get("cut_pause_color", "#1d4ed8"),
+            ))
             fps = int(self.settings.get("preview_fps", 12))
             for source in self.sources:
                 if isinstance(source, VideoSource):
@@ -1360,9 +1428,24 @@ class MainWindow(QMainWindow):
         preview = self.preview_source.name if self.preview_source is not None else "—"
         program = self.program_source.name if self.program_source is not None else "—"
         if isValid(self.preview_caption):
-            self.preview_caption.setText(f"PREVIEW · {preview}")
+            if (
+                self.preview_source is not None
+                and self.preview_source is self.program_source
+                and isinstance(self.preview_source, PdfSource)
+                and self.preview_source.page_count > 0
+            ):
+                if self.preview_source.page_index + 1 < self.preview_source.page_count:
+                    self.preview_caption.setText(
+                        f"ПРЕДПРОСМОТР · След. слайд {self.preview_source.page_index + 2}/{self.preview_source.page_count} ({preview})"
+                    )
+                else:
+                    self.preview_caption.setText(
+                        f"ПРЕДПРОСМОТР · Конец презентации ({preview})"
+                    )
+            else:
+                self.preview_caption.setText(f"ПРЕДПРОСМОТР · {preview}")
         if isValid(self.program_caption):
-            self.program_caption.setText(f"PROGRAM · {program}")
+            self.program_caption.setText(f"ЭФИР · {program}")
 
     # ==================================================================
     # Слайд-шоу (PDF, PPTX и альбомы фото)
@@ -1515,6 +1598,7 @@ class MainWindow(QMainWindow):
         current = combo.currentData()
         primary = QGuiApplication.primaryScreen()
         control_screen = self.screen() or primary
+        self._last_control_screen = control_screen
 
         combo.blockSignals(True)
         combo.clear()
@@ -1595,10 +1679,24 @@ class MainWindow(QMainWindow):
     # Прочее
     # ==================================================================
     def _on_fps_updated(self, current: float, average: float) -> None:
-        self.fps_label.setText(f"FPS: {current:.1f} | Avg: {average:.1f}")
+        self.fps_label.setText(f"Кадров/с: {current:.1f} | Среднее: {average:.1f}")
 
     def _on_source_error(self, message: str) -> None:
         self.statusBar().showMessage(message, 10000)
+
+    def moveEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().moveEvent(event)
+        if not getattr(self, "_screens_initialized", False):
+            return
+        screen = self.screen()
+        if screen is getattr(self, "_last_control_screen", None):
+            return
+        self._last_control_screen = screen
+        previous_output = self.screen_combo.currentData()
+        self._refresh_screens()
+        if self._output_active and previous_output is screen:
+            self._hide_output()
+            self.statusBar().showMessage("Вывод скрыт: пульт перемещён на экран вывода", 5000)
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
         if self.program_source is not None:

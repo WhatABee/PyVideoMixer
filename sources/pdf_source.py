@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import QThread, Signal, Slot
+from PySide6.QtGui import QImage
 
 from core.workers import PdfRenderWorker
 from sources.base import BaseSource
@@ -19,6 +20,7 @@ class PdfSource(BaseSource):
 
     page_changed = Signal(int, int)  # index (0-based), page_count
     _render_request = Signal(int)
+    _preview_render_request = Signal(int)
     _shutdown_request = Signal()
 
     def __init__(self, name: str, path: str, dpi: int = 150, parent=None) -> None:
@@ -29,6 +31,7 @@ class PdfSource(BaseSource):
         self._dpi = max(72, int(dpi))
         self._thread: Optional[QThread] = None
         self._worker: Optional[PdfRenderWorker] = None
+        self._next_preview_frame: Optional[QImage] = None
         self._closed = False
 
     # ------------------------------------------------------------------
@@ -52,9 +55,11 @@ class PdfSource(BaseSource):
         self._worker.moveToThread(self._thread)
 
         self._render_request.connect(self._worker.render_page)
+        self._preview_render_request.connect(self._worker.render_preview_page)
         self._shutdown_request.connect(self._worker.shutdown)
 
         self._worker.frame_ready.connect(self._publish)
+        self._worker.preview_frame_ready.connect(self._on_next_preview_ready)
         self._worker.document_opened.connect(self._on_document_opened)
         self._worker.page_rendered.connect(self._on_page_rendered)
         self._worker.failed.connect(self._on_error)
@@ -65,6 +70,7 @@ class PdfSource(BaseSource):
     def stop(self) -> None:
         super().stop()
         self._closed = True
+        self._next_preview_frame = None
         thread = self._thread
         if thread is None or not thread.isRunning():
             return
@@ -82,6 +88,13 @@ class PdfSource(BaseSource):
         self.page_index = index
         self.page_changed.emit(index, self.page_count)
         self._render_request.emit(index)
+        if index + 1 < self.page_count:
+            self._preview_render_request.emit(index + 1)
+        else:
+            self._next_preview_frame = None
+
+    def get_next_preview(self) -> Optional[QImage]:
+        return self._next_preview_frame
 
     def next_page(self) -> None:
         if self.page_count <= 0 or self.is_last_page:
@@ -120,6 +133,14 @@ class PdfSource(BaseSource):
         self.page_index = 0
         self._requested_page = 0
         self.page_changed.emit(0, page_count)
+        if page_count > 1:
+            self._preview_render_request.emit(1)
+        else:
+            self._next_preview_frame = None
+
+    @Slot(QImage)
+    def _on_next_preview_ready(self, img: QImage) -> None:
+        self._next_preview_frame = img
 
     @Slot(int, int)
     def _on_page_rendered(self, index: int, page_count: int) -> None:

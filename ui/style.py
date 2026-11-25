@@ -1,200 +1,100 @@
-"""Тёмная тема пульта и подсветка мастер-кнопок."""
+"""Темы пульта и подсветка мастер-кнопок."""
 
 from __future__ import annotations
 
+import re
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QWidget
 
-STYLE_SHEET = """
-QMainWindow {
-    background-color: #16191d;
-}
-QWidget {
-    color: #e6e8eb;
-    font-family: "Segoe UI", "Arial", sans-serif;
-    font-size: 13px;
-}
-QGroupBox {
-    border: 1px solid #323842;
-    border-radius: 8px;
-    margin-top: 16px;
-    padding: 10px 8px 8px 8px;
-    font-weight: 600;
-    color: #9aa4b2;
-}
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 12px;
-    padding: 0 4px;
-}
-QLabel#headerLabel {
-    font-size: 18px;
-    font-weight: 700;
-    color: #f1f5f9;
-    padding: 2px 4px;
-}
-QListWidget {
-    background-color: #101317;
-    border: 1px solid #2a3038;
-    border-radius: 6px;
-    outline: 0;
-}
-QListWidget::item {
-    padding: 8px 10px;
-    border-bottom: 1px solid #1d2229;
-}
-QListWidget::item:selected {
-    background-color: #1f3a63;
-    color: #ffffff;
-}
-QPushButton {
-    background-color: #2a3038;
-    border: 1px solid #3a424d;
-    border-radius: 6px;
-    padding: 6px 10px;
-}
-QPushButton#mediaPoolButton {
-    padding: 4px 8px;
-    font-size: 11px;
-    font-weight: 500;
-}
-QPushButton#mediaPoolButton:hover {
-    background-color: #343c46;
-}
-QPushButton:hover {
-    background-color: #343c46;
-}
-QPushButton:pressed {
-    background-color: #20252c;
-}
-QPushButton:disabled {
-    color: #6b7280;
-    background-color: #262b33;
-    border-color: #323842;
-}
-QPushButton#cutButton:disabled,
-QPushButton#fadeButton:disabled,
-QPushButton#fadePauseButton:disabled,
-QPushButton#freezeButton:disabled,
-QPushButton#blackButton:disabled {
-    color: #6b7280;
-    background-color: #262b33;
-    border-color: #323842;
-}
-QPushButton#cutButton {
-    background-color: #2563eb;
-    border-color: #3b82f6;
-    font-size: 16px;
-    font-weight: 800;
-    letter-spacing: 2px;
-}
-QPushButton#cutButton:hover {
-    background-color: #3b82f6;
-}
-QPushButton#fadeButton,
-QPushButton#fadePauseButton {
-    background-color: #0f766e;
-    border-color: #14b8a6;
-    font-size: 16px;
-    font-weight: 800;
-    letter-spacing: 2px;
-}
-QPushButton#fadeButton:hover,
-QPushButton#fadePauseButton:hover {
-    background-color: #14b8a6;
-}
-QPushButton#slidePlayButton, QPushButton#slideStopButton {
-    /* Segoe UI Symbol рисует ⏯/⏹/⏸ монохромно, без синих emoji-квадратов.
-       Одна семья, без списка: иначе Qt выбирает emoji-фолбэк. */
-    font-family: "Segoe UI Symbol";
-}
-QPushButton#slidePlayButton[active="true"] {
-    background-color: #15803d;
-    border-color: #22c55e;
-    color: #ffffff;
-}
-QPushButton#slidePlayButton[active="true"]:hover {
-    background-color: #16a34a;
-}
-QPushButton#freezeButton {
-    font-size: 15px;
-    font-weight: 800;
-    letter-spacing: 2px;
-}
-QPushButton#freezeButton[active="true"] {
-    background-color: #dc2626;
-    border-color: #f87171;
-    color: #ffffff;
-}
-QPushButton#blackButton {
-    font-size: 15px;
-    font-weight: 800;
-    letter-spacing: 2px;
-}
-QPushButton#blackButton[active="true"] {
-    background-color: #000000;
-    border-color: #ef4444;
-    color: #ef4444;
-}
-QComboBox, QSpinBox, QDoubleSpinBox {
-    background-color: #101317;
-    border: 1px solid #2a3038;
-    border-radius: 6px;
-    padding: 4px 6px;
-    min-height: 20px;
-}
-QComboBox QAbstractItemView {
-    background-color: #1a1e24;
-    selection-background-color: #1f3a63;
-}
-QCheckBox {
-    spacing: 8px;
-}
-QStatusBar {
-    background-color: #101317;
-    color: #9aa4b2;
-}
-QDialog, QFileDialog {
-    background-color: #16191d;
-    color: #e6e8eb;
-}
-QTreeView, QTableView, QListView {
-    background-color: #101317;
-    alternate-background-color: #14181f;
-    color: #e6e8eb;
-    border: 1px solid #2a3038;
-    outline: 0;
-}
-QTreeView::item:selected, QTableView::item:selected, QListView::item:selected {
-    background-color: #1f3a63;
-    color: #ffffff;
-}
-QTreeView::item:hover, QTableView::item:hover, QListView::item:hover {
-    background-color: #1d2229;
-}
-QHeaderView::section {
-    background-color: #1e232a;
-    color: #cbd5e1;
-    border: 1px solid #2a3038;
-    padding: 4px 6px;
-}
-QLineEdit {
-    background-color: #101317;
-    color: #e6e8eb;
-    border: 1px solid #2a3038;
-    border-radius: 6px;
-    padding: 4px 6px;
-}
-QToolButton {
-    background-color: #2a3038;
-    color: #e6e8eb;
-    border: 1px solid #3a424d;
-    border-radius: 4px;
-    padding: 4px;
-}
-QToolButton:hover {
-    background-color: #343c46;
-}
+
+def _normalize_hex_color(value: str, fallback: str = "#2563eb") -> str:
+    """Возвращает цвет в формате #rrggbb или безопасный fallback."""
+    candidate = str(value or "").strip()
+    match = re.fullmatch(r"#?([0-9a-fA-F]{6})", candidate)
+    if match:
+        return f"#{match.group(1).lower()}"
+    match = re.fullmatch(r"rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)", candidate, re.IGNORECASE)
+    if match:
+        values = tuple(int(part) for part in match.groups())
+        if all(0 <= value <= 255 for value in values):
+            return "#" + "".join(f"{value:02x}" for value in values)
+    match = re.fullmatch(r"(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})", candidate)
+    if match:
+        values = tuple(int(part) for part in match.groups())
+        if all(0 <= value <= 255 for value in values):
+            return "#" + "".join(f"{value:02x}" for value in values)
+    if fallback == value:
+        return "#2563eb"
+    return _normalize_hex_color(fallback, "#2563eb")
+
+
+def build_stylesheet(
+    theme: str = "dark",
+    accent: str = "#2563eb",
+    fade_color: str = "#0f766e",
+    fade_pause_color: str = "#0d9488",
+    cut_color: str = "#2563eb",
+    cut_pause_color: str = "#1d4ed8",
+) -> str:
+    """Создаёт компактную светлую или тёмную тему с заданными цветами."""
+    accent = _normalize_hex_color(accent)
+    fade_color = _normalize_hex_color(fade_color, "#0f766e")
+    fade_pause_color = _normalize_hex_color(fade_pause_color, "#0d9488")
+    cut_color = _normalize_hex_color(cut_color)
+    cut_pause_color = _normalize_hex_color(cut_pause_color, "#1d4ed8")
+    if theme == "system":
+        hints = QGuiApplication.styleHints()
+        theme = "light" if hints.colorScheme() == Qt.ColorScheme.Light else "dark"
+    light = theme == "light"
+    bg = "#f8fafc" if light else "#16191d"
+    field = "#ffffff" if light else "#101317"
+    card = "#e2e8f0" if light else "#2a3038"
+    border = "#cbd5e1" if light else "#2a3038"
+    text = "#0f172a" if light else "#e6e8eb"
+    muted = "#475569" if light else "#9aa4b2"
+    header = "#0f172a" if light else "#f1f5f9"
+    hover = "#cbd5e1" if light else "#343c46"
+    selected = accent
+    return f"""
+QMainWindow, QDialog, QFileDialog {{ background-color: {bg}; color: {text}; }}
+QWidget {{ color: {text}; font-family: "Segoe UI", "Arial", sans-serif; font-size: 13px; }}
+QGroupBox {{ border: 1px solid {border}; border-radius: 8px; margin-top: 12px; padding: 7px 6px 6px 6px; font-weight: 600; color: {muted}; }}
+QGroupBox::title {{ subcontrol-origin: margin; left: 12px; padding: 0 4px; }}
+QLabel#headerLabel, QLabel#sourceTitleLabel {{ color: {header}; }}
+QLabel#headerLabel {{ font-size: 18px; font-weight: 700; padding: 2px 4px; }}
+QLabel#sourceTitleLabel {{ font-weight: 700; }}
+QLabel#mutedLabel {{ color: {muted}; }}
+QListWidget, QTreeView, QTableView, QListView, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{ background-color: {field}; color: {text}; border: 1px solid {border}; border-radius: 6px; }}
+QListWidget {{ outline: 0; }}
+QListWidget::item {{ padding: 6px 8px; border-bottom: 1px solid {border}; }}
+QListWidget::item:selected, QTreeView::item:selected, QTableView::item:selected, QListView::item:selected {{ background-color: {selected}; color: #ffffff; }}
+QTreeView, QTableView, QListView {{ alternate-background-color: {bg}; outline: 0; }}
+QHeaderView::section {{ background-color: {card}; color: {text}; border: 1px solid {border}; padding: 4px 6px; }}
+QPushButton, QToolButton {{ background-color: {card}; color: {text}; border: 1px solid {border}; border-radius: 6px; padding: 6px 10px; }}
+QPushButton:hover, QToolButton:hover {{ background-color: {hover}; }}
+QSlider::groove:horizontal {{ height: 6px; background: {card}; border-radius: 3px; }}
+QSlider::sub-page:horizontal {{ background: {accent}; border-radius: 3px; }}
+QSlider::handle:horizontal {{ background: {accent}; border: 1px solid #ffffff; width: 14px; height: 14px; margin: -4px 0; border-radius: 7px; }}
+QPushButton:disabled {{ color: {muted}; background-color: {card}; }}
+QPushButton#mediaPoolButton {{ padding: 4px 8px; font-size: 11px; font-weight: 500; }}
+QPushButton#cutButton {{ background-color: {cut_color}; border-color: {cut_color}; color: #ffffff; font-size: 16px; font-weight: 800; }}
+QPushButton#cutPauseButton {{ background-color: {cut_pause_color}; border-color: {cut_pause_color}; color: #ffffff; font-size: 16px; font-weight: 800; }}
+QPushButton#cutButton:hover, QPushButton#cutPauseButton:hover {{ background-color: {hover}; }}
+QPushButton#fadeButton {{ background-color: {fade_color}; border-color: {fade_color}; color: #ffffff; font-size: 16px; font-weight: 800; }}
+QPushButton#fadePauseButton {{ background-color: {fade_pause_color}; border-color: {fade_pause_color}; color: #ffffff; font-size: 16px; font-weight: 800; }}
+QPushButton#fadeButton:hover, QPushButton#fadePauseButton:hover {{ background-color: {hover}; }}
+QPushButton#freezeButton[active="true"] {{ background-color: #dc2626; color: #ffffff; }}
+QPushButton#blackButton[active="true"] {{ background-color: #000000; color: #ef4444; }}
+QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit {{ padding: 4px 6px; min-height: 20px; }}
+QComboBox QAbstractItemView {{ background-color: {field}; color: {text}; selection-background-color: {selected}; }}
+QCheckBox {{ spacing: 8px; }}
+QStatusBar {{ background-color: {field}; color: {muted}; }}
 """
+
+
+STYLE_SHEET = build_stylesheet()
 
 
 def set_active_property(widget: QWidget, active: bool) -> None:
