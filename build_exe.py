@@ -180,6 +180,22 @@ def _selftest() -> bool:
     return code == 0 and bool(report.get("ok"))
 
 
+def _run_smoke_test() -> None:
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "tools" / "smoke_test.py")],
+        cwd=ROOT,
+        timeout=60,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    print(result.stdout, end="")
+    if result.stderr:
+        print(result.stderr, end="")
+    if "SMOKE TEST PASSED" not in result.stdout:
+        raise SystemExit("Smoke-тест не пройден")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Сборка PyVideoMixer.exe")
     parser.add_argument("--no-clean", action="store_true", help="не удалять build/ и dist/")
@@ -190,6 +206,7 @@ def main() -> int:
     version_dir = _next_version()
     if not args.no_clean:
         _clean()
+    _run_smoke_test()
     _build(clean=not args.no_clean)
     _copy_guide()
 

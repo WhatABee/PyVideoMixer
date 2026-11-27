@@ -85,6 +85,11 @@ QPushButton#cutButton:hover, QPushButton#cutPauseButton:hover {{ background-colo
 QPushButton#fadeButton {{ background-color: {fade_color}; border-color: {fade_color}; color: #ffffff; font-size: 16px; font-weight: 800; }}
 QPushButton#fadePauseButton {{ background-color: {fade_pause_color}; border-color: {fade_pause_color}; color: #ffffff; font-size: 16px; font-weight: 800; }}
 QPushButton#fadeButton:hover, QPushButton#fadePauseButton:hover {{ background-color: {hover}; }}
+QPushButton#cutButton:disabled, QPushButton#cutPauseButton:disabled, QPushButton#fadeButton:disabled, QPushButton#fadePauseButton:disabled {{
+    background-color: {card};
+    border-color: {border};
+    color: {muted};
+}}
 QPushButton#freezeButton[active="true"] {{ background-color: #dc2626; color: #ffffff; }}
 QPushButton#blackButton[active="true"] {{ background-color: #000000; color: #ef4444; }}
 QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit {{ padding: 4px 6px; min-height: 20px; }}

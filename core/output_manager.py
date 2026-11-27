@@ -45,6 +45,7 @@ class OutputManager(QObject):
     ) -> None:
         super().__init__(parent)
         self._fps = max(1, int(fps))
+        self._idle_fps = 60
         self._default_transition_ms = max(40, int(transition_ms))
 
         self._timer = QTimer(self)
@@ -118,6 +119,18 @@ class OutputManager(QObject):
     def fade_active(self) -> bool:
         return self._fade_active
 
+    def set_idle_fps(self, fps: int) -> None:
+        self._idle_fps = max(1, min(60, int(fps)))
+
+    def set_low_cpu_idle(self, enabled: bool) -> None:
+        target_ms = (
+            max(1, int(1000 / self._idle_fps))
+            if enabled
+            else max(1, int(1000 / self._fps))
+        )
+        if self._timer.interval() != target_ms:
+            self._timer.setInterval(target_ms)
+
     # ------------------------------------------------------------------
     # Жизненный цикл
     # ------------------------------------------------------------------
@@ -187,6 +200,7 @@ class OutputManager(QObject):
 
     def fade(self, duration_ms: Optional[int] = None) -> None:
         """Плавный переход Program <- Preview с кроссфейдом."""
+        self.set_low_cpu_idle(False)
         if self._preview is None or self._preview is self._program:
             return
 
@@ -207,6 +221,7 @@ class OutputManager(QObject):
     # Freeze / Black
     # ------------------------------------------------------------------
     def set_freeze(self, enabled: bool, snapshot: Optional[QImage] = None) -> None:
+        self.set_low_cpu_idle(False)
         enabled = bool(enabled)
         if enabled == self._freeze:
             return
@@ -240,6 +255,7 @@ class OutputManager(QObject):
     def set_black(
         self, enabled: bool, smooth: bool = False, duration_ms: Optional[int] = None
     ) -> None:
+        self.set_low_cpu_idle(False)
         enabled = bool(enabled)
         self._last_emitted_output = None
         self._black = enabled
@@ -277,6 +293,14 @@ class OutputManager(QObject):
     # Тик композитора
     # ------------------------------------------------------------------
     def _tick(self) -> None:
+        is_idle = (
+            self.native_video_active()
+            and not self._fade_active
+            and not self._freeze
+            and not self._black
+            and not self._black_anim_active
+        )
+        self.set_low_cpu_idle(is_idle)
         self._advance_fps()
         self._advance_black()
 

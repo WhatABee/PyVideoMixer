@@ -815,6 +815,7 @@ class MainWindow(QMainWindow):
         if source is None:
             self.preview_widget.set_image(None)
         self.output.set_preview(source)
+        self._sync_video_preview_states()
         self._sync_native_preview()
         self._refresh_captions()
         self._rebuild_source_controls()
@@ -1072,6 +1073,15 @@ class MainWindow(QMainWindow):
         widget.set_rendering_enabled(enabled)
         if button is not None:
             button.setText("⏸ Пауза" if enabled else "▶ Старт")
+        self._sync_video_preview_states()
+
+    def _sync_video_preview_states(self) -> None:
+        for src in self.sources:
+            if isinstance(src, VideoSource):
+                src.set_preview_enabled(
+                    (src is self.preview_source and self._preview_rendering)
+                    or (src is self.program_source and self._program_rendering)
+                )
 
     def _sync_slot_play_buttons(self) -> None:
         for button, source, rendering in (
@@ -1161,6 +1171,7 @@ class MainWindow(QMainWindow):
             target.set_high_res_transition(True)
             target.set_muted(target._muted)
         self.output.cut()
+        self._sync_video_preview_states()
         self._refresh_captions()
         self._refresh_slide_target()
         self._sync_slot_play_buttons()
@@ -1186,6 +1197,7 @@ class MainWindow(QMainWindow):
             self.output._last_content = live_frame
         self.program_source = target
         self.output.fade(int(self.fade_duration.value() * 1000))
+        self._sync_video_preview_states()
         self._refresh_captions()
         self._refresh_slide_target()
         self._sync_slot_play_buttons()
@@ -1211,6 +1223,7 @@ class MainWindow(QMainWindow):
                 incoming._user_paused = False
                 incoming.play()
         self._sync_slot_play_buttons()
+        self._sync_video_preview_states()
         self._sync_native_output()
 
     def _apply_output_zorder(self, native_video: bool, black_state: bool) -> None:
@@ -1312,6 +1325,8 @@ class MainWindow(QMainWindow):
         self.video_output_window.set_image(image)
 
     def _sync_native_output(self) -> None:
+        fps = int(self.settings.get("preview_fps", 60))
+        self.output.set_idle_fps(fps)
         if not getattr(self, "_compositor_output_connected", False):
             self.output.output_frame.connect(self._on_compositor_output_frame)
             self.video_output_window.hidden_by_user.connect(self._hide_output)
@@ -1393,6 +1408,7 @@ class MainWindow(QMainWindow):
                 self.settings.get("cut_pause_color", "#1d4ed8"),
             ))
             fps = int(self.settings.get("preview_fps", 12))
+            self.output.set_idle_fps(fps)
             for source in self.sources:
                 if isinstance(source, VideoSource):
                     source.set_preview_fps(fps)

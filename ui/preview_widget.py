@@ -78,6 +78,7 @@ class ScreenWidget(QWidget):
         size = image.size().scaled(
             self.size(), Qt.AspectRatioMode.KeepAspectRatio
         )
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
         painter.drawImage(
             QRect(
                 (self.width() - size.width()) // 2,

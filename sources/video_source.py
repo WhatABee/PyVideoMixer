@@ -32,6 +32,7 @@ class VideoSource(BaseSource):
         self._preview_interval = 1.0 / 12.0
         self._last_preview_time = 0.0
         self._full_frame: Optional[QImage] = None
+        self._preview_enabled = True
         self._first_1080p_frame: Optional[QImage] = None
         self._last_video_frame: Optional[QVideoFrame] = None
         self._source_ready = False
@@ -45,6 +46,7 @@ class VideoSource(BaseSource):
         self._audio_fade_step = 0.0
         self._pending_pause_after_fade = False
         self._pending_reset_after_fade = False
+        self._audio_gen = 0
 
         self._player = QMediaPlayer(self)
         self._audio = QAudioOutput(self)
@@ -144,20 +146,27 @@ class VideoSource(BaseSource):
             and not self._pending_pause_after_fade
         ):
             return
+        self._audio_gen += 1
+        gen = self._audio_gen
         self._user_paused = False
         self._is_playing = True
         self._pending_pause_after_fade = False
         self._pending_reset_after_fade = False
         self._fade_audio_timer.stop()
-        if self._current_audio_vol != 0.0:
-            self._current_audio_vol = 0.0
-            self._audio.setVolume(0.0)
+        self._current_audio_vol = 0.0
+        self._audio.setVolume(0.0)
         self._audio.setMuted(False)
         self._player.play()
         if not self._muted:
-            self._start_audio_ramp(self._volume, duration_ms=90)
+            QTimer.singleShot(
+                25,
+                lambda g=gen: self._start_audio_ramp(self._volume, duration_ms=90)
+                if g == self._audio_gen and self._is_playing and not self._muted
+                else None,
+            )
 
     def pause(self, by_user: bool = False) -> None:
+        self._audio_gen += 1
         if by_user:
             self._user_paused = True
         was_playing = self._is_playing
@@ -172,8 +181,16 @@ class VideoSource(BaseSource):
         self.pause(by_user=True) if self._is_playing else self.play()
 
     def reset_to_start(self) -> None:
+        self._audio_gen += 1
         was_user_paused = self._user_paused
+        was_playing = self._is_playing
+        had_sound = not self._muted and self._current_audio_vol > 0.01
         self._is_playing = False
+        if was_playing and had_sound:
+            self._pending_reset_after_fade = True
+            self._user_paused = was_user_paused
+            self._start_audio_ramp(0.0, duration_ms=50, pause_when_done=True)
+            return
         self._fade_audio_timer.stop()
         self._pending_pause_after_fade = False
         self._pending_reset_after_fade = False
@@ -193,8 +210,13 @@ class VideoSource(BaseSource):
         position_ms = max(0, int(position_ms))
         self._player.setPosition(position_ms)
 
+    def set_preview_enabled(self, enabled: bool) -> None:
+        self._preview_enabled = bool(enabled)
+
     def set_high_res_transition(self, enabled: bool) -> None:
         self._high_res_transition = bool(enabled)
+        if not enabled:
+            self._full_frame = None
         if enabled:
             image = None
             if self._last_video_frame is not None and self._last_video_frame.isValid():
@@ -261,6 +283,8 @@ class VideoSource(BaseSource):
                 self._player.setPosition(0)
                 self._initializing_preview = False
                 self._publish(first_frame)
+        if not self._preview_enabled and not self._high_res_transition:
+            return
         now = time.monotonic()
         interval = (1.0 / 30.0) if self._high_res_transition else self._preview_interval
         if now - self._last_preview_time < interval:
